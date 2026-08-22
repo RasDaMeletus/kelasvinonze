@@ -9,6 +9,63 @@
 const GAS_URL = '';
 const API_BASE = '/api/gas';
 
+
+/**
+ * Call the Vercel API proxy and unwrap the Google Apps Script response.
+ * The Apps Script API returns: { success: true, data: ... }
+ */
+async function apiGet(action, params = {}) {
+  const url = new URL(API_BASE, window.location.origin);
+  url.searchParams.set('action', action);
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    cache: 'no-store',
+    headers: { 'Accept': 'application/json' }
+  });
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    throw new Error('Server mengembalikan response yang bukan JSON.');
+  }
+
+  if (!response.ok || !payload || payload.success !== true) {
+    throw new Error(
+      (payload && payload.error) ||
+      `Request gagal (${response.status}).`
+    );
+  }
+
+  return payload.data;
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value ?? '';
+}
+
+function rupiah(value) {
+  const number = Number(value) || 0;
+  return 'Rp' + Math.round(number).toLocaleString('id-ID');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function drawCashChart(data) {
   const container = document.getElementById('cashChart');
   if (!container) return;

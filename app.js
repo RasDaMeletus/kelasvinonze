@@ -9,132 +9,86 @@
 const GAS_URL = '';
 const API_BASE = '/api/gas';
 
-let cashChartInstance = null;
-
-function rupiah(n) {
-  n = Math.round(Number(n || 0));
-  const sign = n < 0 ? '-' : '';
-  return sign + 'Rp' + Math.abs(n).toLocaleString('id-ID');
-}
-
-function setText(id, value) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = value;
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function apiUrl(action, params = {}) {
-  const url = new URL(API_BASE, window.location.origin);
-  url.searchParams.set('action', action);
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
-      url.searchParams.set(key, value);
-    }
-  });
-
-  return url.toString();
-}
-
-async function apiGet(action, params = {}) {
-  const response = await fetch(apiUrl(action, params), {
-    method: 'GET',
-    cache: 'no-store'
-  });
-
-  if (!response.ok) {
-    throw new Error(`Server API merespons HTTP ${response.status}.`);
-  }
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.error || 'Terjadi kesalahan pada server.');
-  }
-
-  return result.data;
-}
-
 function drawCashChart(data) {
-  const canvas = document.getElementById('cashChart');
-  if (!canvas || !window.Chart) return;
+  const container = document.getElementById('cashChart');
+  if (!container) return;
 
-  if (cashChartInstance) cashChartInstance.destroy();
+  const labels = Array.isArray(data.labels) ? data.labels : [];
+  const balance = Array.isArray(data.balance) ? data.balance.map(Number) : [];
+  const income = Array.isArray(data.income) ? data.income.map(Number) : [];
+  const expense = Array.isArray(data.expense) ? data.expense.map(Number) : [];
+  const count = Math.max(labels.length, balance.length, income.length, expense.length);
 
-  cashChartInstance = new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels: data.labels || [],
-      datasets: [
-        {
-          label: 'Saldo',
-          data: data.balance || [],
-          borderWidth: 3,
-          tension: .35,
-          fill: true,
-          pointRadius: 3,
-          pointHoverRadius: 5
-        },
-        {
-          label: 'Pemasukan',
-          data: data.income || [],
-          borderWidth: 2,
-          tension: .35,
-          fill: false,
-          pointRadius: 2
-        },
-        {
-          label: 'Pengeluaran',
-          data: data.expense || [],
-          borderWidth: 2,
-          tension: .35,
-          fill: false,
-          pointRadius: 2
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { usePointStyle: true, boxWidth: 8, font: { size: 10 } }
-        },
-        tooltip: {
-          callbacks: {
-            label: function(ctx) {
-              return ' ' + ctx.dataset.label + ': ' + rupiah(ctx.raw);
-            }
-          }
-        }
-      },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 9 } } },
-        y: {
-          beginAtZero: true,
-          grid: { color: 'rgba(148,163,184,.12)' },
-          ticks: {
-            font: { size: 9 },
-            callback: function(v) {
-              if (Math.abs(v) >= 1000000) return 'Rp ' + (v / 1000000).toFixed(1) + 'jt';
-              if (Math.abs(v) >= 1000) return 'Rp ' + (v / 1000).toFixed(0) + 'rb';
-              return 'Rp ' + v;
-            }
-          }
-        }
-      }
-    }
-  });
+  if (!count) {
+    container.innerHTML = '<div class="chart-empty">Belum ada transaksi untuk ditampilkan.</div>';
+    return;
+  }
+
+  const W = 900, H = 260;
+  const pad = { left: 58, right: 18, top: 18, bottom: 46 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+  const allValues = balance.concat(income, expense).filter(Number.isFinite);
+  let maxValue = Math.max(0, ...allValues);
+  let minValue = Math.min(0, ...allValues);
+  if (maxValue === minValue) {
+    maxValue += maxValue === 0 ? 10000 : Math.abs(maxValue) * .2;
+  }
+  const range = maxValue - minValue || 1;
+  const x = i => count === 1 ? pad.left + plotW / 2 : pad.left + (i * plotW / (count - 1));
+  const y = v => pad.top + (maxValue - v) * plotH / range;
+  const fmt = v => {
+    v = Number(v) || 0;
+    if (Math.abs(v) >= 1000000) return 'Rp ' + (v / 1000000).toFixed(1) + 'jt';
+    if (Math.abs(v) >= 1000) return 'Rp ' + Math.round(v / 1000) + 'rb';
+    return 'Rp ' + Math.round(v);
+  };
+  const safe = arr => Array.from({length: count}, (_, i) => Number(arr[i] || 0));
+  const b = safe(balance), inc = safe(income), exp = safe(expense);
+  const path = arr => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  const area = arr => {
+    if (count === 1) return '';
+    const base = y(minValue);
+    return path(arr) + ' L ' + x(count - 1).toFixed(1) + ' ' + base.toFixed(1) + ' L ' + x(0).toFixed(1) + ' ' + base.toFixed(1) + ' Z';
+  };
+
+  const grid = [];
+  const ticks = 4;
+  for (let i = 0; i <= ticks; i++) {
+    const value = minValue + range * (i / ticks);
+    const yy = y(value);
+    grid.push('<line x1="' + pad.left + '" y1="' + yy.toFixed(1) + '" x2="' + (W-pad.right) + '" y2="' + yy.toFixed(1) + '" class="chart-grid"/>');
+    grid.push('<text x="' + (pad.left - 8) + '" y="' + (yy + 4).toFixed(1) + '" text-anchor="end" class="chart-axis">' + escapeHtml(fmt(value)) + '</text>');
+  }
+
+  const labelStep = Math.max(1, Math.ceil(count / 7));
+  const xLabels = [];
+  for (let i = 0; i < count; i += labelStep) {
+    xLabels.push('<text x="' + x(i).toFixed(1) + '" y="' + (H - 15) + '" text-anchor="middle" class="chart-axis">' + escapeHtml(labels[i] || '') + '</text>');
+  }
+  if (count > 1 && (count - 1) % labelStep !== 0) {
+    xLabels.push('<text x="' + x(count - 1).toFixed(1) + '" y="' + (H - 15) + '" text-anchor="middle" class="chart-axis">' + escapeHtml(labels[count - 1] || '') + '</text>');
+  }
+
+  const points = (arr, cls) => arr.map((v, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(v).toFixed(1) + '" r="3.5" class="' + cls + '"/>').join('');
+
+  container.innerHTML =
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Grafik saldo, pemasukan, dan pengeluaran">' +
+      '<g>' + grid.join('') + '</g>' +
+      '<path d="' + area(b) + '" class="chart-area"/>' +
+      '<path d="' + path(b) + '" class="chart-line chart-balance"/>' +
+      '<path d="' + path(inc) + '" class="chart-line chart-income"/>' +
+      '<path d="' + path(exp) + '" class="chart-line chart-expense"/>' +
+      points(b, 'chart-dot chart-balance-dot') +
+      points(inc, 'chart-dot chart-income-dot') +
+      points(exp, 'chart-dot chart-expense-dot') +
+      '<g>' + xLabels.join('') + '</g>' +
+    '</svg>' +
+    '<div class="chart-legend">' +
+      '<span><i class="legend-dot balance"></i>Saldo</span>' +
+      '<span><i class="legend-dot income"></i>Pemasukan</span>' +
+      '<span><i class="legend-dot expense"></i>Pengeluaran</span>' +
+    '</div>';
 }
 
 async function loadLiveTransparency() {
@@ -153,14 +107,12 @@ async function loadLiveTransparency() {
       hour: '2-digit', minute: '2-digit'
     }));
 
-    if (res.labels && (res.balance || res.saldoHistory || res.income || res.expense)) {
-      drawCashChart({
-        labels: res.labels,
-        balance: res.balance || res.saldoHistory || [],
-        income: res.income || [],
-        expense: res.expense || []
-      });
-    }
+    drawCashChart({
+      labels: res.labels || [],
+      balance: res.balance || res.saldoHistory || [],
+      income: res.income || [],
+      expense: res.expense || []
+    });
 
     if (status) {
       status.textContent = '● Data live';

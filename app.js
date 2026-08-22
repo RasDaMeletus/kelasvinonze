@@ -6,7 +6,8 @@
  * Example:
  * https://script.google.com/macros/s/AKfycbxxxxxxxxxxxxxxxx/exec
  */
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbwlpPKmNofb4SwBnTyztClFkh6UVvRlypOHFLfGJNdHFK4godA1hI-z2OjxUwH-XkMh/exec';
+const GAS_URL = '';
+const API_BASE = '/api/gas';
 
 let cashChartInstance = null;
 
@@ -31,11 +32,7 @@ function escapeHtml(value) {
 }
 
 function apiUrl(action, params = {}) {
-  if (!GAS_URL || GAS_URL.includes('PASTE_YOUR_')) {
-    throw new Error('URL Google Apps Script belum diatur di app.js.');
-  }
-
-  const url = new URL(GAS_URL);
+  const url = new URL(API_BASE, window.location.origin);
   url.searchParams.set('action', action);
 
   Object.entries(params).forEach(([key, value]) => {
@@ -50,9 +47,7 @@ function apiUrl(action, params = {}) {
 async function apiGet(action, params = {}) {
   const response = await fetch(apiUrl(action, params), {
     method: 'GET',
-    mode: 'cors',
-    cache: 'no-store',
-    redirect: 'follow'
+    cache: 'no-store'
   });
 
   if (!response.ok) {

@@ -272,3 +272,28 @@ tr:last-child td{border-bottom:none}
   .dashboard-meta{display:block}
   .meta-item{margin-bottom:7px}
 }
+
+
+/* Self-contained cash chart: no external Chart.js dependency. */
+.chart-wrap { height: 220px; position: relative; width: 100%; overflow: hidden; }
+.cash-chart { width: 100%; height: 100%; }
+.cash-chart svg { display: block; width: 100%; height: 100%; }
+.chart-grid { stroke: rgba(148,163,184,.18); stroke-width: 1; }
+.chart-axis { fill: #64748b; font-size: 11px; font-family: Arial, sans-serif; }
+.chart-line { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.chart-balance { stroke: #2563eb; }
+.chart-income { stroke: #16a34a; stroke-width: 2.5; }
+.chart-expense { stroke: #dc2626; stroke-width: 2.5; }
+.chart-area { fill: rgba(37,99,235,.08); stroke: none; }
+.chart-dot { stroke: white; stroke-width: 2; }
+.chart-balance-dot { fill: #2563eb; }
+.chart-income-dot { fill: #16a34a; }
+.chart-expense-dot { fill: #dc2626; }
+.chart-empty { height: 100%; display: grid; place-items: center; color: #64748b; font-size: 13px; }
+.chart-legend { position: absolute; right: 8px; top: 4px; display: flex; gap: 12px; align-items: center; font-size: 11px; color: #475569; background: rgba(255,255,255,.88); padding: 4px 7px; border-radius: 8px; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.legend-dot.balance { background: #2563eb; }
+.legend-dot.income { background: #16a34a; }
+.legend-dot.expense { background: #dc2626; }
+@media (max-width: 640px) { .chart-legend { position: static; margin-top: -2px; justify-content: center; } .chart-wrap { height: 240px; } }

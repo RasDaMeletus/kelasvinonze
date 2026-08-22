@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Portal siswa Kas Kelas 12.5 untuk mengecek status pembayaran kas dan kondisi kas kelas.">
+  <meta name="theme-color" content="#2563EB">
+  <title>Kas Kelas 12.5 — Portal Siswa</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+    <header class="top">
+      <div class="header-badge">● PORTAL SISWA</div>
+      <h1>Kas Kelas 12.5</h1>
+      <p>Cek status pembayaran kas mingguan kamu dengan cepat dan transparan.</p>
+    </header>
+
+    
+    <!-- LIVE CASH TRANSPARENCY -->
+    <div class="card" id="cashDashboard">
+      <div class="card-head">
+        <div>
+          <div class="section-kicker">Live transparency</div>
+          <h2>📊 Kondisi Kas Kelas</h2>
+        </div>
+        <span class="status-pill pill-green" id="liveStatus">● Data live</span>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-box primary">
+          <div class="label">Saldo</div>
+          <div class="value" id="liveSaldo">-</div>
+        </div>
+        <div class="stat-box green">
+          <div class="label">Pemasukan</div>
+          <div class="value" id="liveMasuk">-</div>
+        </div>
+        <div class="stat-box red">
+          <div class="label">Pengeluaran</div>
+          <div class="value" id="liveKeluar">-</div>
+        </div>
+        <div class="stat-box amber">
+          <div class="label">Minggu berjalan</div>
+          <div class="value" id="liveMinggu">-</div>
+        </div>
+      </div>
+
+      <div style="margin-top:18px">
+        <div class="section-kicker">Pergerakan kas</div>
+        <div style="height:220px; position:relative;">
+          <canvas id="cashChart"></canvas>
+        </div>
+      </div>
+
+      <div class="dashboard-meta">
+        <div class="meta-item">✓ <strong id="liveLunas">-</strong> siswa lunas</div>
+        <div class="meta-item">◷ <strong id="liveBelumLunas">-</strong> belum lunas</div>
+        <div class="meta-item">Terakhir diperbarui: <strong id="liveUpdated">-</strong></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 0;">
+      <div class="section-kicker">Cek pembayaran</div>
+      <h2>Pilih Nama</h2>
+      <select id="namaSelect">
+        <option value="">Memuat daftar siswa...</option>
+      </select>
+      <button id="cekBtn" >Cek Status Kas</button>
+    </div>
+
+    <div id="result"></div>
+
+    <p class="footer-note">Iuran kas: Rp5.000 / minggu · Dihitung otomatis sampai hari ini</p>
+  </div>
+<script src="/app.js" defer></script>
+</body>
+</html>

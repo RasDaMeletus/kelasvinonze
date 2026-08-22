@@ -1,8 +1,10 @@
-{
-  "rewrites": [
-    {
-      "source": "/api/gas",
-      "destination": "/api/gas.js"
-    }
-  ]
-}
+kelasvinonze/
+│
+├── index.html
+├── app.js
+├── style.css
+├── package.json
+├── vercel.json
+│
+└── api/
+    └── gas.js

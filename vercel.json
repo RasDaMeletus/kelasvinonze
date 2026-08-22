@@ -1,7 +1,8 @@
 {
-  "functions": {
-    "api/gas.js": {
-      "runtime": "nodejs22.x"
+  "rewrites": [
+    {
+      "source": "/api/gas",
+      "destination": "/api/gas.js"
     }
-  }
+  ]
 }

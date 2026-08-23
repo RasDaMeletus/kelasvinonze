@@ -1,16 +1,8 @@
 // Proxy antara frontend Vercel dan Google Apps Script Web App.
-//
-// GET  -> diteruskan ke GAS sebagai GET.
-// POST -> diteruskan ke GAS sebagai POST.
-//
-// Catatan penting:
-// Google Apps Script Web App (URL /exec) dapat mengembalikan 302 ke
-// script.googleusercontent.com. Redirect 302 pada POST tidak aman untuk
-// dipertahankan sebagai POST: endpoint redirect GAS dapat membalas 405.
-// Karena itu kita mengikuti redirect secara normal untuk POST (fetch akan
-// mengubah 302 menjadi GET sesuai perilaku HTTP), lalu mengembalikan response
-// GAS. Untuk action POST yang membutuhkan body, backend GAS harus menyediakan
-// jalur GET yang setara; lihat Code.gs.
+// POST GAS harus mempertahankan method/body ketika Apps Script mengembalikan
+// redirect 302 ke script.googleusercontent.com. fetch(..., redirect:'follow')
+// dapat mengubah POST menjadi GET pada 302, sehingga action/body hilang dan
+// GAS dapat mengembalikan 405. Di sini redirect diikuti manual dengan POST.
 
 export default async function handler(req, res) {
   const gasUrl = process.env.GAS_API_URL;
@@ -62,20 +54,7 @@ export default async function handler(req, res) {
         });
       }
 
-      // GAS Web App menggunakan redirect 302 setelah menerima request pada
-      // /exec. Jangan mempertahankan POST secara manual ke URL redirect,
-      // karena script.googleusercontent.com dapat mengembalikan 405.
-      const response = await fetch(gasUrl, {
-        method: 'POST',
-        cache: 'no-store',
-        redirect: 'follow',
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Accept': 'application/json, text/plain, */*'
-        },
-        body: JSON.stringify(body)
-      });
-
+      const response = await postToGasPreservingRedirect(gasUrl, body);
       return sendGasResponse(res, response);
     }
 
@@ -92,6 +71,41 @@ export default async function handler(req, res) {
       error: error?.message || String(error)
     });
   }
+}
+
+async function postToGasPreservingRedirect(gasUrl, body) {
+  const requestBody = JSON.stringify(body);
+
+  // Apps Script biasanya mengembalikan 302 dari /exec ke
+  // script.googleusercontent.com. Jangan biarkan fetch mengubah POST menjadi
+  // GET. Ikuti redirect secara manual dan kirim ulang body POST.
+  let url = gasUrl;
+  const maxRedirects = 5;
+
+  for (let i = 0; i <= maxRedirects; i++) {
+    const response = await fetch(url, {
+      method: 'POST',
+      cache: 'no-store',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Accept': 'application/json, text/plain, */*'
+      },
+      body: requestBody
+    });
+
+    const location = response.headers.get('location');
+    const isRedirect = [301, 302, 303, 307, 308].includes(response.status);
+
+    if (isRedirect && location) {
+      url = new URL(location, url).toString();
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new Error('Terlalu banyak redirect dari Google Apps Script.');
 }
 
 async function sendGasResponse(res, response) {

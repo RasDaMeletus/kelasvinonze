@@ -31,31 +31,63 @@
     if (historyOpen && allHistoryData) renderAllHistory(selected);
   };
 
+  function ensureModal() {
+    let modal = document.getElementById('historyModal');
+    if (modal) return modal;
+
+    modal = document.createElement('div');
+    modal.id = 'historyModal';
+    modal.className = 'history-modal';
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML =
+      '<div class="history-backdrop" data-close-history></div>' +
+      '<section class="history-sheet" role="dialog" aria-modal="true" aria-labelledby="historyTitle">' +
+        '<div class="history-sheet-head"><div><div class="section-kicker">Riwayat transaksi</div><h2 id="historyTitle">Semua Riwayat</h2><div id="allHistoryCount" class="history-count">0 transaksi</div></div><button type="button" class="history-close" aria-label="Tutup" data-close-history>×</button></div>' +
+        '<div class="history-filter-bar" id="historyFilterBar"><button type="button" class="history-filter active" data-view="semua">Semua</button><button type="button" class="history-filter" data-view="masuk">Pendapatan</button><button type="button" class="history-filter" data-view="keluar">Pengeluaran</button></div>' +
+        '<div class="table-wrap history-table-wrap"><table><thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jumlah</th><th>Saldo</th></tr></thead><tbody id="allHistoryBody"></tbody></table></div>' +
+      '</section>';
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', function (e) {
+      const filter = e.target.closest ? e.target.closest('.history-filter') : null;
+      if (filter) {
+        e.preventDefault();
+        updateModalFilter(filter.getAttribute('data-view'));
+        return;
+      }
+      if (e.target.closest && e.target.closest('[data-close-history]')) closeHistory();
+    });
+
+    return modal;
+  }
+
   function renderAllHistory(view) {
     const tbody = document.getElementById('allHistoryBody');
     if (!tbody) return;
-    const list = listFor(allHistoryData, view || currentView());
+    const list = listFor(allHistoryData, view || 'semua');
     tbody.innerHTML = list.length ? list.map(row).join('') : '<tr><td colspan="4" class="muted">Belum ada transaksi.</td></tr>';
     const count = document.getElementById('allHistoryCount');
     if (count) count.textContent = list.length + ' transaksi';
   }
 
   function updateModalFilter(view) {
-    const modal = document.getElementById('historyModal');
-    if (!modal) return;
-    modal.querySelectorAll('.history-filter').forEach(function (btn) { btn.classList.toggle('active', btn.getAttribute('data-view') === view); });
+    const modal = ensureModal();
+    modal.querySelectorAll('.history-filter').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-view') === view);
+    });
     renderAllHistory(view);
   }
 
   async function openHistory() {
-    const modal = document.getElementById('historyModal');
-    if (!modal) return;
+    const modal = ensureModal();
     historyOpen = true;
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('history-lock');
+
     const tbody = document.getElementById('allHistoryBody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="muted">Memuat seluruh riwayat...</td></tr>';
+
     try {
       allHistoryData = await apiGet('getTransparencyDashboard');
       updateModalFilter('semua');
@@ -73,37 +105,18 @@
     document.body.classList.remove('history-lock');
   }
 
-  function setup() {
-    const card = document.getElementById('txCard');
-    const tabBar = document.getElementById('txTabBar');
-    if (!card || !tabBar) return;
-
-    // The button is now part of index.html, below the three latest transactions.
-    // Do not create another button here.
-    const button = document.getElementById('showAllHistoryBtn');
-    if (button) button.addEventListener('click', openHistory);
-
-    if (!document.getElementById('historyModal')) {
-      const modal = document.createElement('div');
-      modal.id = 'historyModal';
-      modal.className = 'history-modal';
-      modal.setAttribute('aria-hidden', 'true');
-      modal.innerHTML =
-        '<div class="history-backdrop" data-close-history></div>' +
-        '<section class="history-sheet" role="dialog" aria-modal="true" aria-labelledby="historyTitle">' +
-          '<div class="history-sheet-head"><div><div class="section-kicker">Riwayat transaksi</div><h2 id="historyTitle">Semua Riwayat</h2><div id="allHistoryCount" class="history-count">0 transaksi</div></div><button type="button" class="history-close" aria-label="Tutup" data-close-history>×</button></div>' +
-          '<div class="history-filter-bar" id="historyFilterBar"><button type="button" class="history-filter active" data-view="semua">Semua</button><button type="button" class="history-filter" data-view="masuk">Pendapatan</button><button type="button" class="history-filter" data-view="keluar">Pengeluaran</button></div>' +
-          '<div class="table-wrap history-table-wrap"><table><thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jumlah</th><th>Saldo</th></tr></thead><tbody id="allHistoryBody"></tbody></table></div>' +
-        '</section>';
-      document.body.appendChild(modal);
-      modal.addEventListener('click', function (e) {
-        const filter = e.target.closest ? e.target.closest('.history-filter') : null;
-        if (filter) updateModalFilter(filter.getAttribute('data-view'));
-        if (e.target.closest && e.target.closest('[data-close-history]')) closeHistory();
-      });
-      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && historyOpen) closeHistory(); });
+  // Event delegation makes the bottom button reliable even if another script
+  // re-renders the transaction card after history.js has loaded.
+  document.addEventListener('click', function (e) {
+    const button = e.target.closest ? e.target.closest('#showAllHistoryBtn') : null;
+    if (button) {
+      e.preventDefault();
+      e.stopPropagation();
+      openHistory();
     }
-  }
+  });
 
-  document.addEventListener('DOMContentLoaded', setup);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && historyOpen) closeHistory();
+  });
 })();

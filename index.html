@@ -7,7 +7,23 @@
   <meta name="theme-color" content="#2563EB">
   <title>Kas Kelas 12.5 — Portal Siswa</title>
   <link rel="stylesheet" href="/style.css">
-  </head>
+  <style>
+    .history-all-btn{border:0;background:transparent;padding:8px 0;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
+    .history-all-btn span{margin-left:4px}
+    .history-count{font-size:.82rem;opacity:.65;margin:10px 0 0}
+    .history-in{font-weight:700}
+    .history-out{font-weight:700}
+    .history-modal{position:fixed;inset:0;z-index:1000;display:none}
+    .history-modal.show{display:block}
+    .history-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.42);backdrop-filter:blur(3px)}
+    .history-sheet{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(920px,calc(100% - 28px));max-height:min(78vh,720px);overflow:hidden;background:#fff;border-radius:20px;box-shadow:0 24px 70px rgba(15,23,42,.22);padding:22px}
+    .history-sheet-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+    .history-close{width:38px;height:38px;border:0;border-radius:50%;background:#f1f5f9;font-size:25px;line-height:1;cursor:pointer}
+    .history-table-wrap{max-height:58vh;overflow:auto}
+    .history-lock{overflow:hidden}
+    @media(max-width:640px){.history-sheet{padding:16px;border-radius:16px}.history-sheet-head h2{font-size:1.25rem}.history-table-wrap{max-height:60vh}.history-sheet table{min-width:620px}}
+  </style>
+</head>
 <body>
 <div class="wrap">
     <header class="top">
@@ -16,43 +32,18 @@
       <p>Cek status pembayaran kas mingguan kamu dengan cepat dan transparan.</p>
     </header>
 
-    
-    <!-- LIVE CASH TRANSPARENCY -->
     <div class="card" id="cashDashboard">
       <div class="card-head">
-        <div>
-          <div class="section-kicker">Live transparency</div>
-          <h2>📊 Kondisi Kas Kelas</h2>
-        </div>
+        <div><div class="section-kicker">Live transparency</div><h2>📊 Kondisi Kas Kelas</h2></div>
         <span class="status-pill pill-green" id="liveStatus">● Data live</span>
       </div>
-
       <div class="stat-grid">
-        <div class="stat-box primary">
-          <div class="label">Saldo</div>
-          <div class="value" id="liveSaldo">-</div>
-        </div>
-        <div class="stat-box green">
-          <div class="label">Pemasukan</div>
-          <div class="value" id="liveMasuk">-</div>
-        </div>
-        <div class="stat-box red">
-          <div class="label">Pengeluaran</div>
-          <div class="value" id="liveKeluar">-</div>
-        </div>
-        <div class="stat-box amber">
-          <div class="label">Minggu berjalan</div>
-          <div class="value" id="liveMinggu">-</div>
-        </div>
+        <div class="stat-box primary"><div class="label">Saldo</div><div class="value" id="liveSaldo">-</div></div>
+        <div class="stat-box green"><div class="label">Pemasukan</div><div class="value" id="liveMasuk">-</div></div>
+        <div class="stat-box red"><div class="label">Pengeluaran</div><div class="value" id="liveKeluar">-</div></div>
+        <div class="stat-box amber"><div class="label">Minggu berjalan</div><div class="value" id="liveMinggu">-</div></div>
       </div>
-
-      <div style="margin-top:18px">
-        <div class="section-kicker">Pergerakan kas</div>
-        <div class="chart-wrap" aria-label="Grafik pergerakan kas">
-          <div id="cashChart" class="cash-chart"></div>
-        </div>
-      </div>
-
+      <div style="margin-top:18px"><div class="section-kicker">Pergerakan kas</div><div class="chart-wrap" aria-label="Grafik pergerakan kas"><div id="cashChart" class="cash-chart"></div></div></div>
       <div class="dashboard-meta">
         <div class="meta-item">✓ <strong id="liveLunas">-</strong> siswa lunas</div>
         <div class="meta-item">◷ <strong id="liveBelumLunas">-</strong> belum lunas</div>
@@ -60,13 +51,9 @@
       </div>
     </div>
 
-    <!-- RIWAYAT TRANSAKSI (digabung langsung di portal siswa) -->
     <div class="card" id="txCard">
       <div class="card-head">
-        <div>
-          <div class="section-kicker">Riwayat</div>
-          <h2>Alur Kas Kelas</h2>
-        </div>
+        <div><div class="section-kicker">Riwayat</div><h2>Alur Kas Kelas</h2></div>
       </div>
       <div class="tabs" id="txTabBar">
         <button type="button" class="tab-btn active" data-view="semua">Semua</button>
@@ -81,19 +68,15 @@
       </div>
     </div>
 
-    <div class="card" style="margin-top: 0;">
-      <div class="section-kicker">Cek pembayaran</div>
-      <h2>Pilih Nama</h2>
-      <select id="namaSelect">
-        <option value="">Memuat daftar siswa...</option>
-      </select>
-      <button id="cekBtn" >Cek Status Kas</button>
+    <div class="card" style="margin-top:0;">
+      <div class="section-kicker">Cek pembayaran</div><h2>Pilih Nama</h2>
+      <select id="namaSelect"><option value="">Memuat daftar siswa...</option></select>
+      <button id="cekBtn">Cek Status Kas</button>
     </div>
-
     <div id="result"></div>
-
     <p class="footer-note">Iuran kas: Rp5.000 / minggu · Dihitung otomatis sampai hari ini</p>
   </div>
 <script src="/app.js" defer></script>
+<script src="/history.js" defer></script>
 </body>
 </html>

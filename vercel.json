@@ -1,1 +1,20 @@
-{}
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/gas.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/gas",
+      "dest": "/api/gas.js",
+      "methods": ["GET", "POST", "OPTIONS"]
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ]
+}

@@ -1,9 +1,16 @@
 // Proxy antara frontend Vercel dan Google Apps Script Web App.
-// GET  -> aksi baca publik (?action=...&...params)
-// POST -> aksi bendahara, body JSON { action, pin, ... }
 //
-// Google Apps Script Web App biasanya mengembalikan redirect 30x.
-// Redirect ditangani manual agar POST + body tetap dipertahankan.
+// GET  -> diteruskan ke GAS sebagai GET.
+// POST -> diteruskan ke GAS sebagai POST.
+//
+// Catatan penting:
+// Google Apps Script Web App (URL /exec) dapat mengembalikan 302 ke
+// script.googleusercontent.com. Redirect 302 pada POST tidak aman untuk
+// dipertahankan sebagai POST: endpoint redirect GAS dapat membalas 405.
+// Karena itu kita mengikuti redirect secara normal untuk POST (fetch akan
+// mengubah 302 menjadi GET sesuai perilaku HTTP), lalu mengembalikan response
+// GAS. Untuk action POST yang membutuhkan body, backend GAS harus menyediakan
+// jalur GET yang setara; lihat Code.gs.
 
 export default async function handler(req, res) {
   const gasUrl = process.env.GAS_API_URL;
@@ -25,18 +32,16 @@ export default async function handler(req, res) {
         }
       });
 
-      const response = await fetchFollowingRedirect(url.toString(), {
+      const response = await fetch(url.toString(), {
         method: 'GET',
-        cache: 'no-store'
+        cache: 'no-store',
+        redirect: 'follow'
       });
 
       return sendGasResponse(res, response);
     }
 
     if (req.method === 'POST') {
-      // Vercel biasanya sudah mem-parse JSON body, tetapi beberapa konfigurasi
-      // dapat memberikan body sebagai string. Normalisasi supaya GAS selalu
-      // menerima JSON object yang valid.
       let body = req.body || {};
 
       if (typeof body === 'string') {
@@ -57,9 +62,13 @@ export default async function handler(req, res) {
         });
       }
 
-      const response = await fetchFollowingRedirect(gasUrl, {
+      // GAS Web App menggunakan redirect 302 setelah menerima request pada
+      // /exec. Jangan mempertahankan POST secara manual ke URL redirect,
+      // karena script.googleusercontent.com dapat mengembalikan 405.
+      const response = await fetch(gasUrl, {
         method: 'POST',
         cache: 'no-store',
+        redirect: 'follow',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
           'Accept': 'application/json, text/plain, */*'
@@ -85,49 +94,15 @@ export default async function handler(req, res) {
   }
 }
 
-/**
- * Follow redirect manually while preserving the original HTTP method and body.
- * This is important for Google Apps Script Web Apps because following the
- * redirect automatically can turn POST into GET and lose the request body.
- */
-async function fetchFollowingRedirect(url, options, maxHops = 5) {
-  let currentUrl = url;
-
-  for (let hop = 0; hop <= maxHops; hop++) {
-    const response = await fetch(currentUrl, {
-      ...options,
-      redirect: 'manual'
-    });
-
-    if (response.status < 300 || response.status >= 400) {
-      return response;
-    }
-
-    const location = response.headers.get('location');
-
-    if (!location) {
-      return response;
-    }
-
-    // Location can be relative or absolute.
-    currentUrl = new URL(location, currentUrl).toString();
-  }
-
-  throw new Error('Terlalu banyak redirect dari Google Apps Script.');
-}
-
 async function sendGasResponse(res, response) {
   const text = await response.text();
+  const contentType = response.headers.get('content-type') || '';
 
   let payload;
 
   try {
     payload = JSON.parse(text);
   } catch (_) {
-    // Jangan membocorkan seluruh HTML Google ke frontend.
-    // Ambil sedikit informasi untuk diagnosis saja.
-    const contentType = response.headers.get('content-type') || '';
-
     console.error('Google Apps Script returned non-JSON:', {
       status: response.status,
       contentType,
@@ -143,6 +118,5 @@ async function sendGasResponse(res, response) {
     });
   }
 
-  // GAS JSON sudah valid. Pertahankan payload apa adanya.
   return res.status(response.ok ? 200 : response.status).json(payload);
 }

@@ -9,6 +9,11 @@
 const GAS_URL = '';
 const API_BASE = '/api/gas';
 
+// Menyimpan payload terakhir dari getTransparencyDashboard supaya tab
+// riwayat (Semua/Pemasukan/Pengeluaran) bisa difilter di frontend tanpa
+// request tambahan ke server.
+let lastTransparencyData = null;
+
 
 /**
  * Call the Vercel API proxy and unwrap the Google Apps Script response.
@@ -153,6 +158,7 @@ async function loadLiveTransparency() {
 
   try {
     const res = await apiGet('getTransparencyDashboard');
+    lastTransparencyData = res;
 
     setText('liveSaldo', rupiah(res.saldo ?? res.balance ?? 0));
     setText('liveMasuk', rupiah(res.totalMasuk ?? res.masuk ?? res.income ?? 0));
@@ -171,6 +177,8 @@ async function loadLiveTransparency() {
       expense: res.expense || []
     });
 
+    renderTxTable(document.querySelector('#txTabBar .tab-btn.active')?.getAttribute('data-view') || 'semua');
+
     if (status) {
       status.textContent = '● Data live';
       status.className = 'status-pill pill-green';
@@ -182,6 +190,29 @@ async function loadLiveTransparency() {
       status.className = 'status-pill pill-amber';
     }
   }
+}
+
+function renderTxTable(view) {
+  const tbody = document.getElementById('tableTx');
+  if (!tbody || !lastTransparencyData) return;
+
+  const list = view === 'masuk' ? lastTransparencyData.pemasukanHistory
+             : view === 'keluar' ? lastTransparencyData.pengeluaranHistory
+             : lastTransparencyData.transactions;
+
+  let rows = '';
+  (list || []).forEach(function(t) {
+    const cls = t.jenis === 'masuk' ? 'tag-masuk' : 'tag-keluar';
+    const sign = t.jenis === 'masuk' ? '+' : '-';
+    rows += '<tr><td>' + escapeHtml(t.tanggal) + '</td><td>' + escapeHtml(t.deskripsi) + '</td>' +
+            '<td class="' + cls + '">' + sign + rupiah(t.jumlah) + '</td>' +
+            '<td>' + rupiah(t.saldo) + '</td></tr>';
+  });
+
+  const emptyMsg = view === 'masuk' ? 'Belum ada pemasukan.'
+                 : view === 'keluar' ? 'Belum ada pengeluaran.'
+                 : 'Belum ada transaksi.';
+  tbody.innerHTML = rows || '<tr><td colspan="4" class="muted">' + emptyMsg + '</td></tr>';
 }
 
 async function loadStudentList() {
@@ -273,6 +304,17 @@ function renderResult(data) {
 
 window.addEventListener('DOMContentLoaded', function() {
   document.getElementById('cekBtn')?.addEventListener('click', cekStatus);
+
+  const txTabBar = document.getElementById('txTabBar');
+  if (txTabBar) {
+    txTabBar.addEventListener('click', function(e) {
+      const btn = e.target.closest ? e.target.closest('.tab-btn') : null;
+      if (!btn) return;
+      txTabBar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderTxTable(btn.getAttribute('data-view'));
+    });
+  }
 
   loadStudentList();
   loadLiveTransparency();

@@ -1,0 +1,678 @@
+/**
+ * ============================================================
+ *  KAS KELAS 12.5 — Google Apps Script Web App (JSON API)
+ * ============================================================
+ *  Backend murni JSON, dipanggil dari frontend Vercel
+ *  (index.html/admin.html/transparansi.html + api/gas.js proxy).
+ *  Tidak lagi merender HTML — semua UI ada di repo Vercel.
+ *
+ *  Kontrak response: { success: true, data: ... }
+ *                  atau { success: false, error: "..." }
+ *
+ *  GET  ?action=...        -> aksi baca publik (lihat ALLOWED_GET_ACTIONS)
+ *  POST body: { action, pin, ... } -> aksi bendahara (lihat ALLOWED_POST_ACTIONS)
+ *
+ *  CARA PASANG:
+ *   1. Buat/pakai Google Spreadsheet.
+ *   2. Extensions > Apps Script > tempel file ini sebagai satu-satunya
+ *      file kode (tidak perlu Style.html/Index.html/Admin.html/
+ *      Transparansi.html lagi — itu sudah digantikan repo Vercel).
+ *   3. Jalankan setupSheets() sekali dari editor (Run > pilih function).
+ *   4. Ganti ADMIN_PIN di bawah.
+ *   5. Deploy > New deployment > Web app.
+ *      - Execute as: Me
+ *      - Who has access: Anyone
+ *   6. Salin URL /exec ke environment variable GAS_API_URL di Vercel
+ *      (Project Settings > Environment Variables), lalu redeploy Vercel.
+ * ============================================================
+ */
+
+// ------------------------------------------------------------
+// KONFIGURASI
+// ------------------------------------------------------------
+const SHEET_SISWA = 'Siswa';
+const SHEET_PEMBAYARAN = 'Pembayaran';
+const SHEET_PENGELUARAN = 'Pengeluaran';
+const SHEET_PENGATURAN = 'Pengaturan';
+
+// PIN untuk aksi bendahara. GANTI INI sebelum deploy.
+const ADMIN_PIN = '125125';
+
+// Daftar nama siswa default, dipakai saat setupSheets() pertama kali.
+const DEFAULT_STUDENTS = [
+  'Alisa Vernanda Pramesti', 'Annisa Rizki Sakinah', 'Aqila Misk Maulida',
+  'Arba Maulanal Kirom', 'Asyfa Hesti Azahra', 'Aydin Tsany Ramada',
+  'Azareel Yanna Direndra', 'Danendra Farraz Afandi', 'Davina Almira',
+  'Devan Ahmad Rahmadi', 'Farras Syafiq Azri Mahardika', 'Farrel Andhika Ferdian',
+  'Gayatri Putri Cahyani', 'Hadyan Aulia Akbar', 'Hafiz Habiburrahman',
+  'Kamilah Khanza Kurniaputri', 'Kayyisah Adhwa Rashanah', 'Keisya Ananda',
+  'Khalisa Kirani', 'Luqiya Ramizah Alya', 'Muhammad Yusuf Rasyadan',
+  'Nafeeza Aulia Prihartono', 'Najla Aqmarina Wardoyo', 'Palguna Satriya Abyasa',
+  'Rafindra Fabian Araya', 'Rahmania Najma Fadhilah', 'Razha Khazan Al Mahendra',
+  'Rihana Putri Yasmin', 'Rizki Ferdiansyah', 'Shabirah Zahrah',
+  'Suhaila Saliha', 'Syafira Apriliani', 'Valya Devina Anshari',
+  'Yasmin Nur Shabrina', 'Yuuki Aisyah Al Arifi', 'Zarra Alifa Kinanti'
+];
+
+// ------------------------------------------------------------
+// ROUTER JSON
+// ------------------------------------------------------------
+const ALLOWED_GET_ACTIONS = ['getStudentList', 'getStudentStatus', 'getTransparencyData', 'getTransparencyDashboard'];
+const ALLOWED_POST_ACTIONS = ['login', 'getAdminDashboard', 'addPayment', 'addExpense', 'updateSettings', 'addStudent'];
+
+function doGet(e) {
+  try {
+    const action = e && e.parameter && e.parameter.action;
+    if (!action) return jsonResponse({ success: false, error: 'Parameter action wajib diisi.' });
+    if (ALLOWED_GET_ACTIONS.indexOf(action) === -1) {
+      return jsonResponse({ success: false, error: 'Action tidak dikenali: ' + action });
+    }
+
+    let data;
+    switch (action) {
+      case 'getStudentList':
+        data = getStudentList();
+        break;
+      case 'getStudentStatus':
+        data = getStudentStatus(e.parameter.nama);
+        break;
+      case 'getTransparencyData':
+        data = getTransparencyData();
+        break;
+      case 'getTransparencyDashboard':
+        data = getTransparencyDashboard();
+        break;
+    }
+    return jsonResponse({ success: true, data: data });
+  } catch (err) {
+    return jsonResponse({ success: false, error: err.message });
+  }
+}
+
+function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) {
+      return jsonResponse({ success: false, error: 'Body request kosong.' });
+    }
+    const body = JSON.parse(e.postData.contents);
+    const action = body.action;
+    if (ALLOWED_POST_ACTIONS.indexOf(action) === -1) {
+      return jsonResponse({ success: false, error: 'Action tidak dikenali: ' + action });
+    }
+
+    let data;
+    switch (action) {
+      case 'login':
+      case 'getAdminDashboard':
+        data = getAdminDashboard(body.pin);
+        break;
+      case 'addPayment':
+        data = { message: addPayment(body.pin, body.nama, body.tanggal, body.jumlah, body.keterangan) };
+        break;
+      case 'addExpense':
+        data = { message: addExpense(body.pin, body.tanggal, body.deskripsi, body.jumlah) };
+        break;
+      case 'updateSettings':
+        data = { message: updateSettings(body.pin, body.tanggalMulai, body.iuranMingguan, body.saldoAwal) };
+        break;
+      case 'addStudent':
+        data = { message: addStudent(body.pin, body.nama) };
+        break;
+    }
+    return jsonResponse({ success: true, data: data });
+  } catch (err) {
+    return jsonResponse({ success: false, error: err.message });
+  }
+}
+
+function jsonResponse(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function getSS() {
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+// ------------------------------------------------------------
+// SETUP (jalankan sekali secara manual dari editor Apps Script)
+// ------------------------------------------------------------
+function setupSheets() {
+  const ss = getSS();
+
+  let sh = ss.getSheetByName(SHEET_SISWA);
+  if (!sh) sh = ss.insertSheet(SHEET_SISWA);
+  if (sh.getLastRow() === 0) {
+    sh.getRange(1, 1, 1, 2).setValues([['No', 'Nama']]).setFontWeight('bold');
+    const rows = DEFAULT_STUDENTS.map((name, i) => [i + 1, name]);
+    sh.getRange(2, 1, rows.length, 2).setValues(rows);
+    sh.setColumnWidths(1, 1, 50);
+    sh.setColumnWidths(2, 1, 250);
+  }
+
+  sh = ss.getSheetByName(SHEET_PEMBAYARAN);
+  if (!sh) sh = ss.insertSheet(SHEET_PEMBAYARAN);
+  if (sh.getLastRow() === 0) {
+    sh.getRange(1, 1, 1, 5).setValues([
+      ['Timestamp', 'Nama', 'Tanggal Bayar', 'Jumlah (Rp)', 'Keterangan']
+    ]).setFontWeight('bold');
+  }
+
+  sh = ss.getSheetByName(SHEET_PENGELUARAN);
+  if (!sh) sh = ss.insertSheet(SHEET_PENGELUARAN);
+  if (sh.getLastRow() === 0) {
+    sh.getRange(1, 1, 1, 4).setValues([
+      ['Timestamp', 'Tanggal', 'Deskripsi', 'Jumlah (Rp)']
+    ]).setFontWeight('bold');
+  }
+
+  sh = ss.getSheetByName(SHEET_PENGATURAN);
+  if (!sh) sh = ss.insertSheet(SHEET_PENGATURAN);
+  if (sh.getLastRow() === 0) {
+    sh.getRange(1, 1, 5, 2).setValues([
+      ['Key', 'Value'],
+      ['NamaKelas', 'Kas Kelas 12.5'],
+      ['TanggalMulai', formatISO(new Date())],
+      ['IuranMingguan', 5000],
+      ['SaldoAwal', 0]
+    ]);
+    sh.getRange(1, 1, 1, 2).setFontWeight('bold');
+  }
+
+  SpreadsheetApp.flush();
+  return 'Setup selesai. Cek TanggalMulai di sheet Pengaturan, sesuaikan bila perlu.';
+}
+
+// ------------------------------------------------------------
+// HELPERS
+// ------------------------------------------------------------
+function formatISO(date) {
+  return Utilities.formatDate(new Date(date), Session.getScriptTimeZone() || 'Asia/Jakarta', 'yyyy-MM-dd');
+}
+
+function formatTanggalID(date) {
+  const bulan = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const d = new Date(date);
+  return d.getDate() + ' ' + bulan[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function getSetting(key) {
+  const sh = getSS().getSheetByName(SHEET_PENGATURAN);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) return data[i][1];
+  }
+  return null;
+}
+
+function setSetting(key, value) {
+  const sh = getSS().getSheetByName(SHEET_PENGATURAN);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) {
+      sh.getRange(i + 1, 2).setValue(value);
+      return true;
+    }
+  }
+  sh.appendRow([key, value]);
+  return true;
+}
+
+// Jumlah minggu yang sudah wajib dibayar sejak TanggalMulai s.d hari ini.
+function getWeeksElapsed() {
+  const startDate = new Date(getSetting('TanggalMulai'));
+  const today = new Date();
+  if (today < startDate) return 0;
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  return Math.floor((today - startDate) / msPerWeek) + 1;
+}
+
+// ------------------------------------------------------------
+// ADMIN AUTH (PIN sederhana)
+// ------------------------------------------------------------
+function checkAdminPin(pin) {
+  return String(pin) === String(ADMIN_PIN);
+}
+
+// ------------------------------------------------------------
+// DATA UNTUK PORTAL SISWA
+// ------------------------------------------------------------
+function getStudentList() {
+  const sh = getSS().getSheetByName(SHEET_SISWA);
+  const data = sh.getDataRange().getValues();
+  const names = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1]) names.push(data[i][1]);
+  }
+  return names;
+}
+
+function getStudentStatus(nama) {
+  if (!nama) throw new Error('Nama wajib diisi.');
+
+  const weeklyFee = Number(getSetting('IuranMingguan'));
+  const weeksElapsed = getWeeksElapsed();
+  const totalDue = weeksElapsed * weeklyFee;
+
+  const sh = getSS().getSheetByName(SHEET_PEMBAYARAN);
+  const data = sh.getDataRange().getValues();
+  let totalPaid = 0;
+  const history = [];
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][1] === nama) {
+      const jumlah = Number(data[i][3]) || 0;
+      totalPaid += jumlah;
+      history.push({
+        tanggal: formatTanggalID(data[i][2]),
+        tanggalRaw: new Date(data[i][2]).getTime(),
+        jumlah: jumlah,
+        keterangan: data[i][4] || ''
+      });
+    }
+  }
+  history.sort((a, b) => b.tanggalRaw - a.tanggalRaw);
+
+  const kurang = totalDue - totalPaid;
+
+  return {
+    nama: nama,
+    weeklyFee: weeklyFee,
+    weeksElapsed: weeksElapsed,
+    totalDue: totalDue,
+    totalPaid: totalPaid,
+    kurang: kurang,
+    lunas: kurang <= 0,
+    history: history
+  };
+}
+
+// Dipakai bersama oleh getAdminDashboard() dan getTransparencyDashboard()
+// supaya perhitungan status lunas/belum lunas konsisten di satu tempat.
+function getStudentStatuses() {
+  const weeklyFee = Number(getSetting('IuranMingguan')) || 0;
+  const weeksElapsed = getWeeksElapsed();
+  const totalDuePerStudent = weeksElapsed * weeklyFee;
+  const students = getStudentList();
+
+  const payRows = getSS().getSheetByName(SHEET_PEMBAYARAN).getDataRange().getValues();
+  const paidByName = {};
+  for (let i = 1; i < payRows.length; i++) {
+    const nama = payRows[i][1];
+    const jumlah = Number(payRows[i][3]) || 0;
+    paidByName[nama] = (paidByName[nama] || 0) + jumlah;
+  }
+
+  return students.map(nama => {
+    const totalPaid = paidByName[nama] || 0;
+    const kurang = totalDuePerStudent - totalPaid;
+    return {
+      nama: nama,
+      totalPaid: totalPaid,
+      totalDue: totalDuePerStudent,
+      kurang: kurang,
+      lunas: kurang <= 0
+    };
+  });
+}
+
+// ------------------------------------------------------------
+// DATA & AKSI UNTUK BENDAHARA (butuh PIN)
+// ------------------------------------------------------------
+function getAdminDashboard(pin) {
+  if (!checkAdminPin(pin)) throw new Error('PIN salah.');
+
+  const weeklyFee = Number(getSetting('IuranMingguan'));
+  const weeksElapsed = getWeeksElapsed();
+  const studentStatus = getStudentStatuses();
+  const totalTerkumpul = studentStatus.reduce((a, s) => a + s.totalPaid, 0);
+
+  const payRows = getSS().getSheetByName(SHEET_PEMBAYARAN).getDataRange().getValues();
+  const expRows = getSS().getSheetByName(SHEET_PENGELUARAN).getDataRange().getValues();
+
+  let totalPengeluaran = 0;
+  const recentExpenses = [];
+  for (let i = 1; i < expRows.length; i++) {
+    const jumlah = Number(expRows[i][3]) || 0;
+    totalPengeluaran += jumlah;
+    recentExpenses.push({
+      tanggal: formatTanggalID(expRows[i][1]),
+      deskripsi: expRows[i][2],
+      jumlah: jumlah
+    });
+  }
+  recentExpenses.reverse();
+
+  const saldoAwal = Number(getSetting('SaldoAwal')) || 0;
+  const saldoSaatIni = saldoAwal + totalTerkumpul - totalPengeluaran;
+
+  const recentPayments = [];
+  for (let i = 1; i < payRows.length; i++) {
+    recentPayments.push({
+      nama: payRows[i][1],
+      tanggal: formatTanggalID(payRows[i][2]),
+      jumlah: Number(payRows[i][3]) || 0,
+      keterangan: payRows[i][4] || ''
+    });
+  }
+  recentPayments.reverse();
+
+  return {
+    namaKelas: getSetting('NamaKelas'),
+    weeklyFee: weeklyFee,
+    weeksElapsed: weeksElapsed,
+    tanggalMulai: formatTanggalID(getSetting('TanggalMulai')),
+    tanggalMulaiISO: formatISO(new Date(getSetting('TanggalMulai'))),
+    saldoAwal: saldoAwal,
+    saldoSaatIni: saldoSaatIni,
+    totalTerkumpul: totalTerkumpul,
+    totalPengeluaran: totalPengeluaran,
+    jumlahLunas: studentStatus.filter(s => s.lunas).length,
+    jumlahBelumLunas: studentStatus.filter(s => !s.lunas).length,
+    students: studentStatus,
+    recentPayments: recentPayments.slice(0, 15),
+    recentExpenses: recentExpenses.slice(0, 15)
+  };
+}
+
+function addPayment(pin, nama, tanggalBayar, jumlah, keterangan) {
+  if (!checkAdminPin(pin)) throw new Error('PIN salah.');
+  if (!nama || !jumlah) throw new Error('Nama dan jumlah wajib diisi.');
+
+  const amount = Number(jumlah);
+  if (!isFinite(amount) || amount <= 0) throw new Error('Jumlah pembayaran harus lebih dari 0.');
+
+  const sh = getSS().getSheetByName(SHEET_PEMBAYARAN);
+  sh.appendRow([
+    new Date(),
+    nama,
+    tanggalBayar ? new Date(tanggalBayar + 'T00:00:00') : new Date(),
+    amount,
+    keterangan || ''
+  ]);
+
+  syncSheet1();
+  SpreadsheetApp.flush();
+  invalidateTransparencyCache();
+
+  return 'Pembayaran ' + nama + ' berhasil dicatat.';
+}
+
+function addExpense(pin, tanggal, deskripsi, jumlah) {
+  if (!checkAdminPin(pin)) throw new Error('PIN salah.');
+  if (!deskripsi || !jumlah) throw new Error('Deskripsi dan jumlah wajib diisi.');
+
+  const amount = Number(jumlah);
+  if (!isFinite(amount) || amount <= 0) throw new Error('Jumlah pengeluaran harus lebih dari 0.');
+
+  const sh = getSS().getSheetByName(SHEET_PENGELUARAN);
+  sh.appendRow([
+    new Date(),
+    tanggal ? new Date(tanggal + 'T00:00:00') : new Date(),
+    deskripsi,
+    amount
+  ]);
+  invalidateTransparencyCache();
+  return 'Pengeluaran berhasil dicatat.';
+}
+
+function updateSettings(pin, tanggalMulai, iuranMingguan, saldoAwal) {
+  if (!checkAdminPin(pin)) throw new Error('PIN salah.');
+  if (tanggalMulai) setSetting('TanggalMulai', tanggalMulai);
+  if (iuranMingguan) setSetting('IuranMingguan', Number(iuranMingguan));
+  if (saldoAwal !== null && saldoAwal !== undefined && saldoAwal !== '') {
+    setSetting('SaldoAwal', Number(saldoAwal));
+  }
+  invalidateTransparencyCache();
+  return 'Pengaturan disimpan.';
+}
+
+function addStudent(pin, nama) {
+  if (!checkAdminPin(pin)) throw new Error('PIN salah.');
+  nama = String(nama || '').trim();
+  if (!nama) throw new Error('Nama wajib diisi.');
+
+  const sh = getSS().getSheetByName(SHEET_SISWA);
+  const data = sh.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]).trim().toLowerCase() === nama.toLowerCase()) {
+      throw new Error('Nama siswa sudah ada.');
+    }
+  }
+
+  sh.appendRow([Math.max(1, sh.getLastRow()), nama]);
+  syncSheet1();
+  SpreadsheetApp.flush();
+  invalidateTransparencyCache();
+
+  return nama + ' berhasil ditambahkan.';
+}
+
+// ------------------------------------------------------------
+// SHEET1 — REKAP MINGGUAN OTOMATIS
+// ------------------------------------------------------------
+function syncSheet1() {
+  const ss = getSS();
+  const sh = ss.getSheetByName('Sheet1') || ss.insertSheet('Sheet1');
+  const studentSh = ss.getSheetByName(SHEET_SISWA);
+  const paymentSh = ss.getSheetByName(SHEET_PEMBAYARAN);
+
+  if (!studentSh || !paymentSh) {
+    throw new Error('Sheet Siswa/Pembayaran belum tersedia. Jalankan setupSheets() terlebih dahulu.');
+  }
+
+  const students = studentSh.getDataRange().getValues()
+    .slice(1)
+    .filter(r => String(r[1] || '').trim() !== '')
+    .map(r => String(r[1]).trim());
+
+  const start = new Date(getSetting('TanggalMulai'));
+  start.setHours(0, 0, 0, 0);
+
+  const paymentRows = paymentSh.getDataRange().getValues();
+  const byNameWeek = {};
+
+  for (let i = 1; i < paymentRows.length; i++) {
+    const nama = String(paymentRows[i][1] || '').trim();
+    const rawDate = paymentRows[i][2];
+    const amount = Number(paymentRows[i][3]) || 0;
+    if (!nama || !rawDate || !amount) continue;
+
+    const date = new Date(rawDate);
+    date.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.floor((date - start) / 86400000);
+    const weekIndex = Math.floor(diffDays / 7);
+
+    // Sheet1 has 48 weekly columns: C:AX.
+    if (weekIndex < 0 || weekIndex >= 48) continue;
+
+    const key = nama.toLowerCase() + '|' + weekIndex;
+    byNameWeek[key] = (byNameWeek[key] || 0) + amount;
+  }
+
+  // IMPORTANT: preserve the existing month/week headers and formatting.
+  // Only replace the data area A5:AY.
+  const firstDataRow = 5;
+  const dataCols = 51; // A:AY = No, Nama, 48 weeks, Total
+  const oldRows = Math.max(sh.getLastRow() - firstDataRow + 1, 0);
+  if (oldRows > 0) {
+    sh.getRange(firstDataRow, 1, oldRows, dataCols).clearContent();
+  }
+
+  const rows = students.map((nama, idx) => {
+    const vals = [idx + 1, nama];
+    let total = 0;
+
+    for (let w = 0; w < 48; w++) {
+      const value = byNameWeek[nama.toLowerCase() + '|' + w] || 0;
+      vals.push(value);
+      total += value;
+    }
+
+    vals.push(total);
+    return vals;
+  });
+
+  if (rows.length) {
+    sh.getRange(firstDataRow, 1, rows.length, dataCols).setValues(rows);
+    sh.getRange(firstDataRow, 3, rows.length, 49).setNumberFormat('#,##0');
+  }
+
+  sh.setFrozenRows(4);
+  sh.setFrozenColumns(2);
+  SpreadsheetApp.flush();
+
+  return 'Sheet1 berhasil disinkronkan: ' + rows.length + ' siswa.';
+}
+
+function onEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    const sheetName = e.range.getSheet().getName();
+    if (sheetName === SHEET_PEMBAYARAN || sheetName === SHEET_SISWA || sheetName === SHEET_PENGATURAN) {
+      syncSheet1();
+      invalidateTransparencyCache();
+    }
+  } catch (err) {
+    console.error('sync Sheet1 onEdit:', err);
+  }
+}
+
+// ------------------------------------------------------------
+// DATA TRANSPARANSI (PUBLIK) — dengan cache supaya cepat
+// ------------------------------------------------------------
+// Cache publik selama TRANSPARENCY_CACHE_SECONDS detik supaya endpoint ini
+// tidak perlu membaca ulang sheet dari nol di setiap request — ini
+// penyebab utama loading lama di halaman Transparansi. Cache otomatis
+// dikosongkan tiap ada pembayaran/pengeluaran/pengaturan/siswa baru lewat
+// invalidateTransparencyCache(), jadi datanya tetap up-to-date.
+const TRANSPARENCY_CACHE_KEY = 'transparansi_data_v1';
+const TRANSPARENCY_CACHE_SECONDS = 120;
+
+function invalidateTransparencyCache() {
+  try {
+    CacheService.getScriptCache().remove(TRANSPARENCY_CACHE_KEY);
+  } catch (err) {
+    console.error('invalidateTransparencyCache:', err);
+  }
+}
+
+function getTransparencyData() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(TRANSPARENCY_CACHE_KEY);
+  if (cached) return JSON.parse(cached);
+
+  // Baca sheet Pengaturan sekali saja (bukan berkali-kali lewat getSetting())
+  // untuk mengurangi jumlah panggilan ke Spreadsheet.
+  const settingRows = getSS().getSheetByName(SHEET_PENGATURAN).getDataRange().getValues();
+  const settings = {};
+  for (let i = 1; i < settingRows.length; i++) settings[settingRows[i][0]] = settingRows[i][1];
+  const saldoAwal = Number(settings['SaldoAwal']) || 0;
+
+  const payRows = getSS().getSheetByName(SHEET_PEMBAYARAN).getDataRange().getValues();
+  const expRows = getSS().getSheetByName(SHEET_PENGELUARAN).getDataRange().getValues();
+
+  const transactions = [];
+  for (let i = 1; i < payRows.length; i++) {
+    if (!payRows[i][2]) continue;
+    transactions.push({
+      tanggalRaw: new Date(payRows[i][2]),
+      jenis: 'masuk',
+      deskripsi: 'Iuran kas — ' + payRows[i][1],
+      jumlah: Number(payRows[i][3]) || 0
+    });
+  }
+  for (let i = 1; i < expRows.length; i++) {
+    if (!expRows[i][1]) continue;
+    transactions.push({
+      tanggalRaw: new Date(expRows[i][1]),
+      jenis: 'keluar',
+      deskripsi: expRows[i][2],
+      jumlah: Number(expRows[i][3]) || 0
+    });
+  }
+
+  transactions.sort((a, b) => a.tanggalRaw - b.tanggalRaw);
+
+  let saldo = saldoAwal;
+  const totalTransactions = transactions.map(t => {
+    saldo += (t.jenis === 'masuk' ? t.jumlah : -t.jumlah);
+    return {
+      tanggal: formatTanggalID(t.tanggalRaw),
+      tanggalRaw: t.tanggalRaw.getTime(),
+      jenis: t.jenis,
+      deskripsi: t.deskripsi,
+      jumlah: t.jumlah,
+      saldo: saldo
+    };
+  }).reverse(); // terbaru dulu
+
+  const totalPemasukan = transactions.filter(t => t.jenis === 'masuk').reduce((a, t) => a + t.jumlah, 0);
+  const totalPengeluaran = transactions.filter(t => t.jenis === 'keluar').reduce((a, t) => a + t.jumlah, 0);
+
+  const result = {
+    namaKelas: settings['NamaKelas'],
+    saldoAwal: saldoAwal,
+    saldoAkhir: saldo,
+    totalPemasukan: totalPemasukan,
+    totalPengeluaran: totalPengeluaran,
+    transactions: totalTransactions,                                   // semua, terbaru dulu
+    pemasukanHistory: totalTransactions.filter(t => t.jenis === 'masuk'),
+    pengeluaranHistory: totalTransactions.filter(t => t.jenis === 'keluar')
+  };
+
+  try {
+    cache.put(TRANSPARENCY_CACHE_KEY, JSON.stringify(result), TRANSPARENCY_CACHE_SECONDS);
+  } catch (err) {
+    // Data > 100KB tidak muat di cache — abaikan saja, tetap kembalikan hasilnya.
+    console.error('cache.put transparansi:', err);
+  }
+
+  return result;
+}
+
+// Ringkasan singkat + data grafik untuk widget "live" di portal siswa.
+// Dibangun dari getTransparencyData() (sudah di-cache) + status siswa,
+// jadi tidak perlu baca sheet lagi dan hasilnya selalu akurat (versi lama
+// menebak-nebak nama sheet, yang rawan salah baca).
+function getTransparencyDashboard() {
+  const data = getTransparencyData();
+  const weeksElapsed = getWeeksElapsed();
+  const statuses = getStudentStatuses();
+  const lunas = statuses.filter(s => s.lunas).length;
+  const belumLunas = statuses.filter(s => !s.lunas).length;
+
+  const chronological = data.transactions.slice().reverse(); // lama -> baru
+  const daily = {};
+  const order = [];
+  chronological.forEach(t => {
+    if (!daily[t.tanggal]) {
+      daily[t.tanggal] = { in: 0, out: 0, saldo: t.saldo };
+      order.push(t.tanggal);
+    }
+    const d = daily[t.tanggal];
+    if (t.jenis === 'masuk') d.in += t.jumlah; else d.out += t.jumlah;
+    d.saldo = t.saldo; // transaksi terakhir di hari itu -> saldo akhir hari itu
+  });
+
+  const recentDays = order.slice(-14); // 14 titik terakhir biar grafik ringkas
+
+  return {
+    saldo: data.saldoAkhir,
+    totalMasuk: data.totalPemasukan,
+    totalKeluar: data.totalPengeluaran,
+    mingguBerjalan: weeksElapsed,
+    lunas: lunas,
+    belumLunas: belumLunas,
+    labels: recentDays,
+    balance: recentDays.map(k => daily[k].saldo),
+    income: recentDays.map(k => daily[k].in),
+    expense: recentDays.map(k => daily[k].out),
+    // Riwayat lengkap ikut dikirim supaya portal siswa bisa langsung
+    // menampilkan alur kas tanpa perlu halaman/panggilan terpisah.
+    transactions: data.transactions,
+    pemasukanHistory: data.pemasukanHistory,
+    pengeluaranHistory: data.pengeluaranHistory
+  };
+}

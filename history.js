@@ -1,4 +1,4 @@
-/* Compact transaction history for the transparency dashboard. */
+/* Compact transaction history + mini chart for the transparency dashboard. */
 (function () {
   let historyOpen = false;
   let allHistoryData = null;
@@ -27,11 +27,51 @@
     return document.querySelector('#txTabBar .tab-btn.active')?.getAttribute('data-view') || 'semua';
   }
 
+  function chartValues(data, view) {
+    const list = listFor(data, view).slice().reverse();
+    return list.map(function (t, i) {
+      return { label: t.tanggal || String(i + 1), value: Number(t.jumlah) || 0, saldo: Number(t.saldo) || 0, jenis: t.jenis };
+    });
+  }
+
+  function renderMiniChart(view) {
+    const host = document.getElementById('historyMiniChart');
+    if (!host) return;
+    const data = chartValues(allHistoryData, view);
+    if (!data.length) {
+      host.innerHTML = '<div class="history-chart-empty">Belum ada data grafik.</div>';
+      return;
+    }
+
+    const W = 760, H = 180, px = 36, py = 18;
+    const plotW = W - px * 2, plotH = H - py - 28;
+    const max = Math.max(1, ...data.map(x => Math.max(x.value, x.saldo)));
+    const x = i => data.length === 1 ? W / 2 : px + i * plotW / (data.length - 1);
+    const y = v => py + plotH - (Math.max(0, v) / max) * plotH;
+    const points = arr => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+    const saldo = data.map(x => x.saldo);
+    const amount = data.map(x => x.value);
+    const labels = data.length <= 6 ? data : [data[0], data[Math.floor(data.length / 2)], data[data.length - 1]];
+
+    host.innerHTML =
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Grafik riwayat transaksi">' +
+        '<line x1="' + px + '" y1="' + (py + plotH) + '" x2="' + (W - px) + '" y2="' + (py + plotH) + '" class="history-axis"/>' +
+        '<path d="' + points(saldo) + '" class="history-chart-saldo"/>' +
+        '<path d="' + points(amount) + '" class="history-chart-amount"/>' +
+        saldo.map((v, i) => '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(v).toFixed(1) + '" r="3" class="history-dot-saldo"/>').join('') +
+        labels.map(function (item) {
+          const i = data.indexOf(item);
+          return '<text x="' + x(i).toFixed(1) + '" y="' + (H - 7) + '" text-anchor="middle" class="history-axis-text">' + escapeHtml(item.label) + '</text>';
+        }).join('') +
+      '</svg>' +
+      '<div class="history-chart-legend">' +
+        '<span><i class="history-legend-saldo"></i>Saldo</span>' +
+        '<span><i class="history-legend-amount"></i>Nilai transaksi</span>' +
+      '</div>';
+  }
+
   window.renderTxTable = function (view) {
     const selected = view || currentView();
-
-    // Biarkan app.js mengambil dan menyusun data seperti biasa, lalu batasi
-    // tampilan dashboard menjadi hanya tiga transaksi terbaru.
     if (typeof originalRenderTxTable === 'function') originalRenderTxTable(selected);
 
     const tbody = document.getElementById('tableTx');
@@ -40,7 +80,10 @@
       if (rows.length > 3) rows.slice(3).forEach(function (tr) { tr.remove(); });
     }
 
-    if (historyOpen && allHistoryData) renderAllHistory(selected);
+    if (historyOpen && allHistoryData) {
+      renderAllHistory(selected);
+      renderMiniChart(selected);
+    }
   };
 
   function renderAllHistory(view) {
@@ -52,10 +95,22 @@
       : '<tr><td colspan="4" class="muted">Belum ada transaksi.</td></tr>';
   }
 
+  function updateModalFilter(view) {
+    const modal = document.getElementById('historyModal');
+    if (!modal) return;
+    modal.querySelectorAll('.history-filter').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-view') === view);
+    });
+    renderAllHistory(view);
+    renderMiniChart(view);
+    const list = listFor(allHistoryData, view);
+    const count = document.getElementById('allHistoryCount');
+    if (count) count.textContent = list.length + ' transaksi';
+  }
+
   async function openHistory() {
     const modal = document.getElementById('historyModal');
     if (!modal) return;
-
     historyOpen = true;
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
@@ -65,9 +120,8 @@
     if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="muted">Memuat seluruh riwayat...</td></tr>';
 
     try {
-      // Ambil seluruh data hanya ketika user benar-benar meminta "Lihat semua".
       allHistoryData = await apiGet('getTransparencyDashboard');
-      renderAllHistory(currentView());
+      updateModalFilter('semua');
     } catch (error) {
       if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="muted">' + escapeHtml(error.message) + '</td></tr>';
     }
@@ -115,9 +169,15 @@
         '<div class="history-backdrop" data-close-history></div>' +
         '<section class="history-sheet" role="dialog" aria-modal="true" aria-labelledby="historyTitle">' +
           '<div class="history-sheet-head">' +
-            '<div><div class="section-kicker">Riwayat transaksi</div><h2 id="historyTitle">Semua Riwayat</h2></div>' +
+            '<div><div class="section-kicker">Riwayat transaksi</div><h2 id="historyTitle">Semua Riwayat</h2><div id="allHistoryCount" class="history-count">0 transaksi</div></div>' +
             '<button type="button" class="history-close" aria-label="Tutup" data-close-history>×</button>' +
           '</div>' +
+          '<div class="history-filter-bar" id="historyFilterBar">' +
+            '<button type="button" class="history-filter active" data-view="semua">Semua</button>' +
+            '<button type="button" class="history-filter" data-view="masuk">Pendapatan</button>' +
+            '<button type="button" class="history-filter" data-view="keluar">Pengeluaran</button>' +
+          '</div>' +
+          '<div id="historyMiniChart" class="history-mini-chart"></div>' +
           '<div class="table-wrap history-table-wrap"><table>' +
             '<thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jumlah</th><th>Saldo</th></tr></thead>' +
             '<tbody id="allHistoryBody"></tbody>' +
@@ -126,7 +186,9 @@
       document.body.appendChild(modal);
 
       modal.addEventListener('click', function (e) {
-        if (e.target.closest('[data-close-history]')) closeHistory();
+        const filter = e.target.closest ? e.target.closest('.history-filter') : null;
+        if (filter) updateModalFilter(filter.getAttribute('data-view'));
+        if (e.target.closest && e.target.closest('[data-close-history]')) closeHistory();
       });
       document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && historyOpen) closeHistory();

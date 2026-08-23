@@ -60,6 +60,27 @@
       </div>
     </div>
 
+    <!-- RIWAYAT TRANSAKSI (digabung langsung di portal siswa) -->
+    <div class="card" id="txCard">
+      <div class="card-head">
+        <div>
+          <div class="section-kicker">Riwayat</div>
+          <h2>Alur Kas Kelas</h2>
+        </div>
+      </div>
+      <div class="tabs" id="txTabBar">
+        <button type="button" class="tab-btn active" data-view="semua">Semua</button>
+        <button type="button" class="tab-btn" data-view="masuk">Pemasukan</button>
+        <button type="button" class="tab-btn" data-view="keluar">Pengeluaran</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jumlah</th><th>Saldo</th></tr></thead>
+          <tbody id="tableTx"><tr><td colspan="4" class="muted">Memuat data...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card" style="margin-top: 0;">
       <div class="section-kicker">Cek pembayaran</div>
       <h2>Pilih Nama</h2>

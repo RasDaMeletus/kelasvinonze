@@ -13,12 +13,7 @@
 
   function row(t) {
     const masuk = t.jenis === 'masuk';
-    return '<tr>' +
-      '<td>' + escapeHtml(t.tanggal) + '</td>' +
-      '<td>' + escapeHtml(t.deskripsi) + '</td>' +
-      '<td class="' + (masuk ? 'history-in' : 'history-out') + '">' + (masuk ? '+' : '-') + rupiah(t.jumlah) + '</td>' +
-      '<td>' + rupiah(t.saldo) + '</td>' +
-      '</tr>';
+    return '<tr><td>' + escapeHtml(t.tanggal) + '</td><td>' + escapeHtml(t.deskripsi) + '</td><td class="' + (masuk ? 'history-in' : 'history-out') + '">' + (masuk ? '+' : '-') + rupiah(t.jumlah) + '</td><td>' + rupiah(t.saldo) + '</td></tr>';
   }
 
   function currentView() {
@@ -48,9 +43,7 @@
   function updateModalFilter(view) {
     const modal = document.getElementById('historyModal');
     if (!modal) return;
-    modal.querySelectorAll('.history-filter').forEach(function (btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-view') === view);
-    });
+    modal.querySelectorAll('.history-filter').forEach(function (btn) { btn.classList.toggle('active', btn.getAttribute('data-view') === view); });
     renderAllHistory(view);
   }
 
@@ -85,24 +78,10 @@
     const tabBar = document.getElementById('txTabBar');
     if (!card || !tabBar) return;
 
-    const head = card.querySelector('.card-head');
-    if (head && !document.getElementById('showAllHistoryBtn')) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.id = 'showAllHistoryBtn';
-      btn.className = 'history-all-btn';
-      btn.innerHTML = 'Lihat semua <span aria-hidden="true">→</span>';
-      btn.addEventListener('click', openHistory);
-      head.appendChild(btn);
-    }
-
-    if (!document.getElementById('historyCount')) {
-      const meta = document.createElement('div');
-      meta.id = 'historyCount';
-      meta.className = 'history-count';
-      meta.textContent = '3 transaksi terbaru';
-      tabBar.parentNode.insertBefore(meta, tabBar);
-    }
+    // The button is now part of index.html, below the three latest transactions.
+    // Do not create another button here.
+    const button = document.getElementById('showAllHistoryBtn');
+    if (button) button.addEventListener('click', openHistory);
 
     if (!document.getElementById('historyModal')) {
       const modal = document.createElement('div');
@@ -112,29 +91,17 @@
       modal.innerHTML =
         '<div class="history-backdrop" data-close-history></div>' +
         '<section class="history-sheet" role="dialog" aria-modal="true" aria-labelledby="historyTitle">' +
-          '<div class="history-sheet-head">' +
-            '<div><div class="section-kicker">Riwayat transaksi</div><h2 id="historyTitle">Semua Riwayat</h2><div id="allHistoryCount" class="history-count">0 transaksi</div></div>' +
-            '<button type="button" class="history-close" aria-label="Tutup" data-close-history>×</button>' +
-          '</div>' +
-          '<div class="history-filter-bar" id="historyFilterBar">' +
-            '<button type="button" class="history-filter active" data-view="semua">Semua</button>' +
-            '<button type="button" class="history-filter" data-view="masuk">Pendapatan</button>' +
-            '<button type="button" class="history-filter" data-view="keluar">Pengeluaran</button>' +
-          '</div>' +
-          '<div class="table-wrap history-table-wrap"><table>' +
-            '<thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jumlah</th><th>Saldo</th></tr></thead>' +
-            '<tbody id="allHistoryBody"></tbody></table></div>' +
+          '<div class="history-sheet-head"><div><div class="section-kicker">Riwayat transaksi</div><h2 id="historyTitle">Semua Riwayat</h2><div id="allHistoryCount" class="history-count">0 transaksi</div></div><button type="button" class="history-close" aria-label="Tutup" data-close-history>×</button></div>' +
+          '<div class="history-filter-bar" id="historyFilterBar"><button type="button" class="history-filter active" data-view="semua">Semua</button><button type="button" class="history-filter" data-view="masuk">Pendapatan</button><button type="button" class="history-filter" data-view="keluar">Pengeluaran</button></div>' +
+          '<div class="table-wrap history-table-wrap"><table><thead><tr><th>Tanggal</th><th>Keterangan</th><th>Jumlah</th><th>Saldo</th></tr></thead><tbody id="allHistoryBody"></tbody></table></div>' +
         '</section>';
       document.body.appendChild(modal);
-
       modal.addEventListener('click', function (e) {
         const filter = e.target.closest ? e.target.closest('.history-filter') : null;
         if (filter) updateModalFilter(filter.getAttribute('data-view'));
         if (e.target.closest && e.target.closest('[data-close-history]')) closeHistory();
       });
-      document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && historyOpen) closeHistory();
-      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && historyOpen) closeHistory(); });
     }
   }
 

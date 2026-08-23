@@ -1,12 +1,14 @@
 /* Compact transaction history for the transparency dashboard. */
 (function () {
   let historyOpen = false;
+  let allHistoryData = null;
+  const originalRenderTxTable = window.renderTxTable;
 
-  function getList(view) {
-    if (!window.lastTransparencyData) return [];
-    if (view === 'masuk') return window.lastTransparencyData.pemasukanHistory || [];
-    if (view === 'keluar') return window.lastTransparencyData.pengeluaranHistory || [];
-    return window.lastTransparencyData.transactions || [];
+  function listFor(data, view) {
+    if (!data) return [];
+    if (view === 'masuk') return data.pemasukanHistory || [];
+    if (view === 'keluar') return data.pengeluaranHistory || [];
+    return data.transactions || [];
   }
 
   function row(t) {
@@ -26,37 +28,49 @@
   }
 
   window.renderTxTable = function (view) {
+    const selected = view || currentView();
+
+    // Biarkan app.js mengambil dan menyusun data seperti biasa, lalu batasi
+    // tampilan dashboard menjadi hanya tiga transaksi terbaru.
+    if (typeof originalRenderTxTable === 'function') originalRenderTxTable(selected);
+
     const tbody = document.getElementById('tableTx');
-    if (!tbody) return;
-    const list = getList(view || currentView());
-    const latest = list.slice(0, 3);
-    tbody.innerHTML = latest.length
-      ? latest.map(row).join('')
-      : '<tr><td colspan="4" class="muted">Belum ada transaksi.</td></tr>';
+    if (tbody) {
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      if (rows.length > 3) rows.slice(3).forEach(function (tr) { tr.remove(); });
+    }
 
-    const count = document.getElementById('historyCount');
-    if (count) count.textContent = list.length ? list.length + ' transaksi' : 'Belum ada transaksi';
-
-    if (historyOpen) renderAllHistory(view || currentView());
+    if (historyOpen && allHistoryData) renderAllHistory(selected);
   };
 
   function renderAllHistory(view) {
     const tbody = document.getElementById('allHistoryBody');
     if (!tbody) return;
-    const list = getList(view || currentView());
+    const list = listFor(allHistoryData, view || currentView());
     tbody.innerHTML = list.length
       ? list.map(row).join('')
       : '<tr><td colspan="4" class="muted">Belum ada transaksi.</td></tr>';
   }
 
-  function openHistory() {
-    historyOpen = true;
+  async function openHistory() {
     const modal = document.getElementById('historyModal');
     if (!modal) return;
+
+    historyOpen = true;
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
-    renderAllHistory(currentView());
     document.body.classList.add('history-lock');
+
+    const tbody = document.getElementById('allHistoryBody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="muted">Memuat seluruh riwayat...</td></tr>';
+
+    try {
+      // Ambil seluruh data hanya ketika user benar-benar meminta "Lihat semua".
+      allHistoryData = await apiGet('getTransparencyDashboard');
+      renderAllHistory(currentView());
+    } catch (error) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="muted">' + escapeHtml(error.message) + '</td></tr>';
+    }
   }
 
   function closeHistory() {

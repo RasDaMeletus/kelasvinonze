@@ -132,13 +132,31 @@ async function submitBayar() {
   const tanggal = document.getElementById('bayarTanggal').value;
   const jumlah = document.getElementById('bayarJumlah').value;
   const ket = document.getElementById('bayarKet').value;
+
   try {
-    const data = await apiPost('addPayment', { pin: PIN, nama, tanggal, jumlah, keterangan: ket });
-    showMsg('bayarMsg', data.message, true);
+    const data = await apiPost('addPayment', {
+      pin: PIN,
+      nama,
+      tanggal,
+      jumlah,
+      keterangan: ket
+    });
+
+    if (!data || data.success === false) {
+      throw new Error(data?.error || 'Pembayaran gagal.');
+    }
+
     document.getElementById('bayarKet').value = '';
-    // Tunggu dashboard selesai mengambil data terbaru dari GAS sebelum
-    // menganggap transaksi selesai. Ini mencegah history tertinggal.
-    await refreshDashboard();
+
+    // Ambil data terbaru secara eksplisit setelah transaksi berhasil.
+    const dashboard = await apiPost('getAdminDashboard', { pin: PIN });
+    renderDashboard(dashboard);
+
+    showMsg(
+      'bayarMsg',
+      data.message || 'Pembayaran berhasil dicatat.',
+      true
+    );
   } catch (error) {
     showMsg('bayarMsg', error.message, false);
   }

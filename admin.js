@@ -40,12 +40,9 @@ async function login() {
 }
 
 async function refreshDashboard() {
-  try {
-    const data = await apiPost('getAdminDashboard', { pin: PIN });
-    renderDashboard(data);
-  } catch (error) {
-    showGlobalError(error.message);
-  }
+  const data = await apiPost('getAdminDashboard', { pin: PIN });
+  renderDashboard(data);
+  return data;
 }
 
 function renderDashboard(d) {
@@ -99,7 +96,6 @@ function renderDashboard(d) {
   document.getElementById('tableSiswa').innerHTML =
     sRows || '<tr><td colspan="4" class="muted">Belum ada data siswa.</td></tr>';
 
-  // Isi Pengaturan supaya tab langsung berguna begitu dibuka.
   const startInput = document.getElementById('setTanggalMulai');
   const feeInput = document.getElementById('setIuran');
   const saldoInput = document.getElementById('setSaldoAwal');
@@ -140,7 +136,9 @@ async function submitBayar() {
     const data = await apiPost('addPayment', { pin: PIN, nama, tanggal, jumlah, keterangan: ket });
     showMsg('bayarMsg', data.message, true);
     document.getElementById('bayarKet').value = '';
-    refreshDashboard();
+    // Tunggu dashboard selesai mengambil data terbaru dari GAS sebelum
+    // menganggap transaksi selesai. Ini mencegah history tertinggal.
+    await refreshDashboard();
   } catch (error) {
     showMsg('bayarMsg', error.message, false);
   }
@@ -155,7 +153,7 @@ async function submitKeluar() {
     showMsg('keluarMsg', data.message, true);
     document.getElementById('keluarDeskripsi').value = '';
     document.getElementById('keluarJumlah').value = '';
-    refreshDashboard();
+    await refreshDashboard();
   } catch (error) {
     showMsg('keluarMsg', error.message, false);
   }
@@ -168,7 +166,7 @@ async function submitSetting() {
   try {
     const data = await apiPost('updateSettings', { pin: PIN, tanggalMulai, iuranMingguan, saldoAwal });
     showMsg('settingMsg', data.message, true);
-    refreshDashboard();
+    await refreshDashboard();
   } catch (error) {
     showMsg('settingMsg', error.message, false);
   }
@@ -180,7 +178,7 @@ async function submitSiswaBaru() {
     const data = await apiPost('addStudent', { pin: PIN, nama });
     showMsg('siswaBaruMsg', data.message, true);
     document.getElementById('siswaBaruNama').value = '';
-    refreshDashboard();
+    await refreshDashboard();
   } catch (error) {
     showMsg('siswaBaruMsg', error.message, false);
   }
@@ -196,8 +194,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // Tab diklik lewat satu listener di container (event delegation), bukan
-  // onclick per tombol — lebih tahan terhadap kondisi render apa pun.
   const tabBar = document.getElementById('tabBar');
   if (tabBar) {
     tabBar.addEventListener('click', function(e) {
